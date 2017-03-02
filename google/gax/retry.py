@@ -120,10 +120,11 @@ def retryable(a_func, retry_options, **kwargs):
                 return to_call(*args)
             except Exception as exception:  # pylint: disable=broad-except
                 code = config.exc_to_code(exception)
+
+                # Do not be greedy; if this is an exception that we do
+                # not know for sure should be retried, simply re-raise it.
                 if code not in retry_options.retry_codes:
-                    raise errors.RetryError(
-                        'Exception occurred in retry method that was not'
-                        ' classified as transient', exception)
+                    raise
 
                 # pylint: disable=redefined-variable-type
                 exc = errors.RetryError(
