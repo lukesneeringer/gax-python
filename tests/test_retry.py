@@ -130,7 +130,7 @@ class TestRetry(unittest.TestCase):
         # bubbled up (because it is not recognized).
         mock_func = mock.Mock()
         mock_func.side_effect = [
-            errors.CustomException('bogus'),
+            ValueError('bogus'),
             mock.DEFAULT,
         ]
         mock_func.return_value = 1729
@@ -143,7 +143,7 @@ class TestRetry(unittest.TestCase):
 
         # Establish that the custom exception is bubbled up (not wrapped), and
         # that the retryable function was called only once, not twice.
-        with self.assertRaises(errors.CustomException):
+        with self.assertRaises(ValueError):
             my_callable(None)
         mock_func.assert_called_once()
 

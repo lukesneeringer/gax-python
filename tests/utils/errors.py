@@ -42,7 +42,3 @@ class MockGrpcException(config.API_ERRORS[0]):
 
     def code(self):
         return self._code
-
-
-class CustomException(Exception):
-    pass
