@@ -43,7 +43,8 @@ from google.gax import (
     __version__ as GAX_VERSION, _CallSettings, api_callable, BackoffSettings,
     BundleDescriptor, BundleOptions, bundling, CallOptions, INITIAL_PAGE,
     PageDescriptor, RetryOptions)
-from google.gax.errors import GaxError
+
+from tests.utils import errors
 
 # pylint: disable=no-member
 GRPC_VERSION = pkg_resources.get_distribution('grpcio').version
@@ -106,9 +107,6 @@ _RETRY_DICT = {'code_a': Exception,
                'code_c': Exception}
 
 
-_FAKE_STATUS_CODE_1 = object()
-
-
 class CustomException(Exception):
     def __init__(self, msg, code):
         super(CustomException, self).__init__(msg)
@@ -142,24 +140,26 @@ class TestCreateApiCallable(unittest2.TestCase):
                          'updated')
 
     @mock.patch('time.time')
-    @mock.patch('google.gax.config.exc_to_code')
-    def test_retry(self, mock_exc_to_code, mock_time):
-        mock_exc_to_code.side_effect = lambda e: e.code
+    def test_retry(self, mock_time):
         to_attempt = 3
         retry = RetryOptions(
-            [_FAKE_STATUS_CODE_1],
-            BackoffSettings(0, 0, 0, 0, 0, 0, 1))
+            ['BOGUS_STATUS_CODE'],
+            BackoffSettings(0, 0, 0, 0, 0, 0, 1),
+        )
 
-        # Succeeds on the to_attempt'th call, and never again afterward
-        mock_call = mock.Mock()
-        mock_call.side_effect = ([CustomException('', _FAKE_STATUS_CODE_1)] *
-                                 (to_attempt - 1) + [mock.DEFAULT])
-        mock_call.return_value = 1729
+        # Define the exception to be raised on every attempt before the
+        # last one, and the result for the last attempt.
+        to_attempt = 3
+        exc = errors.MockGrpcException(code='BOGUS_STATUS_CODE')
+        mock_func = mock.Mock()
+        mock_func.side_effect = [exc] * (to_attempt - 1) + [mock.DEFAULT]
+        mock_func.return_value = 1729
+
         mock_time.return_value = 0
-        settings = _CallSettings(timeout=0, retry=retry)
-        my_callable = api_callable.create_api_call(mock_call, settings)
+        settings = _CallSettings(timeout=None, retry=retry)
+        my_callable = api_callable.create_api_call(mock_func, settings)
         self.assertEqual(my_callable(None), 1729)
-        self.assertEqual(mock_call.call_count, to_attempt)
+        self.assertEqual(mock_func.call_count, to_attempt)
 
     def test_page_streaming(self):
         # A mock grpc function that page streams a list of consecutive
@@ -388,7 +388,7 @@ class TestCreateApiCallable(unittest2.TestCase):
 
         gax_error_callable = api_callable.create_api_call(
             abortion_error_func, _CallSettings())
-        self.assertRaises(GaxError, gax_error_callable, None)
+        self.assertRaises(errors.GaxError, gax_error_callable, None)
 
         other_error_callable = api_callable.create_api_call(
             other_error_func, _CallSettings())

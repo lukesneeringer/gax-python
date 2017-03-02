@@ -32,9 +32,13 @@
 from __future__ import absolute_import, division
 
 import random
+import sys
 import time
 
-from google.gax import config, errors
+import six
+
+from google.gax import config
+from google.gax import errors
 
 _MILLIS_PER_SECOND = 1000
 
@@ -101,8 +105,6 @@ def retryable(a_func, retry_options, **kwargs):
         by the options in ``retry``.
         """
         delay = retry_options.backoff_settings.initial_retry_delay_millis
-        exc = errors.RetryError('Retry total timeout exceeded before any'
-                                'response was received')
         if has_timeout_settings:
             timeout = (
                 retry_options.backoff_settings.initial_rpc_timeout_millis /
@@ -118,17 +120,14 @@ def retryable(a_func, retry_options, **kwargs):
             try:
                 to_call = add_timeout_arg(a_func, timeout, **kwargs)
                 return to_call(*args)
-            except Exception as exception:  # pylint: disable=broad-except
+            except tuple(config.API_ERRORS) as exception:
                 code = config.exc_to_code(exception)
 
-                # Do not be greedy; if this is an exception that we do
-                # not know for sure should be retried, simply re-raise it.
+                # If this is an exception that we do not know for sure should
+                # be retried, wrap it in the way that we would any standard
+                # error.
                 if code not in retry_options.retry_codes:
-                    raise
-
-                # pylint: disable=redefined-variable-type
-                exc = errors.RetryError(
-                    'Retry total timeout exceeded with exception', exception)
+                    raise errors.create_error(str(exception), cause=exception)
 
                 # Sleep a random number which will, on average, equal half of
                 # the given delay.
@@ -143,6 +142,16 @@ def retryable(a_func, retry_options, **kwargs):
                     timeout = min(
                         timeout * timeout_mult, max_timeout, deadline - now)
 
-        raise exc
+                # If we have passed our deadline, raise the exception.
+                if deadline is not None and now >= deadline:
+                    exc = errors.RetryError(
+                        'Retry timeout exceeded; exception: %s' % exception,
+                        cause=exception,
+                    )
+                    six.reraise(errors.RetryError, exc, sys.exc_info()[2])
+
+        # If we got here, then we timed out and never got a response at all.
+        raise errors.RetryError('Retry total timeout exceeded before any'
+                                'response was received.')
 
     return inner

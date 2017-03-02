@@ -41,6 +41,7 @@ DEPENDENCIES = [
     'oauth2client>=2.0.0, <4.0dev',
     'ply==3.8',
     'protobuf>=3.0.0, <4.0dev',
+    'six>=1.9.0',
 ]
 
 with open('README.rst', 'r') as readme:

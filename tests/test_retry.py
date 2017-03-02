@@ -32,143 +32,147 @@
 
 from __future__ import absolute_import, division
 
-import mock
-import unittest2
+import unittest
 
-from google.gax import BackoffSettings, errors, retry, RetryOptions
+import mock
+
+from google.gax import BackoffSettings
+from google.gax import retry
+from google.gax import RetryOptions
+
+from tests.utils import errors
+
 
 _MILLIS_PER_SEC = 1000
 
-
 _FAKE_STATUS_CODE_1 = object()
-
-
 _FAKE_STATUS_CODE_2 = object()
 
 
-class CustomException(Exception):
-    def __init__(self, msg, code):
-        super(CustomException, self).__init__(msg)
-        self.code = code
-
-
-class TestRetry(unittest2.TestCase):
-
-    @mock.patch('google.gax.config.exc_to_code')
+class TestRetry(unittest.TestCase):
     @mock.patch('time.time')
-    def test_retryable_without_timeout(self, mock_time, mock_exc_to_code):
+    def test_retryable_without_timeout(self, mock_time):
         mock_time.return_value = 0
-        mock_exc_to_code.side_effect = lambda e: e.code
 
+        # Define the exception to be raised on every attempt before the
+        # last one, and the result for the last attempt.
         to_attempt = 3
-        mock_call = mock.Mock()
-        mock_call.side_effect = ([CustomException('', _FAKE_STATUS_CODE_1)] *
-                                 (to_attempt - 1) + [mock.DEFAULT])
-        mock_call.return_value = 1729
+        exc = errors.MockGrpcException(code=_FAKE_STATUS_CODE_1)
+        mock_func = mock.Mock()
+        mock_func.side_effect = [exc] * (to_attempt - 1) + [mock.DEFAULT]
+        mock_func.return_value = 1729
 
         retry_options = RetryOptions(
             [_FAKE_STATUS_CODE_1],
-            BackoffSettings(0, 0, 0, None, None, None, None))
+            BackoffSettings(0, 0, 0, None, None, None, None),
+        )
 
-        my_callable = retry.retryable(mock_call, retry_options)
+        my_callable = retry.retryable(mock_func, retry_options)
+        result = my_callable(None)
 
-        self.assertEqual(my_callable(None), 1729)
-        self.assertEqual(to_attempt, mock_call.call_count)
+        self.assertEqual(result, 1729)
+        self.assertEqual(to_attempt, mock_func.call_count)
 
-    @mock.patch('google.gax.config.exc_to_code')
     @mock.patch('time.time')
-    def test_retryable_with_timeout(self, mock_time, mock_exc_to_code):
+    def test_retryable_with_timeout(self, mock_time):
         mock_time.return_value = 1
-        mock_exc_to_code.side_effect = lambda e: e.code
 
-        mock_call = mock.Mock()
-        mock_call.side_effect = [CustomException('', _FAKE_STATUS_CODE_1),
-                                 mock.DEFAULT]
-        mock_call.return_value = 1729
+        mock_func = mock.Mock()
+        mock_func.side_effect = [
+            errors.MockGrpcException(code=_FAKE_STATUS_CODE_1),
+            mock.DEFAULT,
+        ]
+        mock_func.return_value = 1729
 
         retry_options = RetryOptions(
             [_FAKE_STATUS_CODE_1],
-            BackoffSettings(0, 0, 0, 0, 0, 0, 0))
+            BackoffSettings(0, 0, 0, 0, 0, 0, 0),
+        )
 
-        my_callable = retry.retryable(mock_call, retry_options)
+        my_callable = retry.retryable(mock_func, retry_options)
 
         self.assertRaises(errors.RetryError, my_callable)
-        self.assertEqual(0, mock_call.call_count)
+        self.assertEqual(0, mock_func.call_count)
 
-    @mock.patch('google.gax.config.exc_to_code')
     @mock.patch('time.time')
-    def test_retryable_when_no_codes(self, mock_time, mock_exc_to_code):
+    def test_retryable_when_no_codes(self, mock_time):
         mock_time.return_value = 0
-        mock_exc_to_code.side_effect = lambda e: e.code
 
-        mock_call = mock.Mock()
-        mock_call.side_effect = [CustomException('', _FAKE_STATUS_CODE_1),
-                                 mock.DEFAULT]
-        mock_call.return_value = 1729
+        # Set up the mock function to raise an exception that is *not*
+        # an expected code.
+        mock_func = mock.Mock()
+        mock_func.side_effect = [
+            errors.MockGrpcException(code=_FAKE_STATUS_CODE_2),
+            mock.DEFAULT,
+        ]
+        mock_func.return_value = 1729
 
+        # Set the retry options not to actually honor any codes
+        # (thus, our code is not in the list).
         retry_options = RetryOptions(
             [],
-            BackoffSettings(0, 0, 0, 0, 0, 0, 1))
+            BackoffSettings(0, 0, 0, 0, 0, 0, 1),
+        )
 
-        my_callable = retry.retryable(mock_call, retry_options)
-
-        with self.assertRaises(CustomException):
+        # Create the callable and establish that we get a GaxError.
+        my_callable = retry.retryable(mock_func, retry_options)
+        with self.assertRaises(errors.GaxError):
             my_callable(None)
 
-        self.assertEqual(1, mock_call.call_count)
+        # The actual retryable function should have been called exactly once.
+        mock_func.assert_called_once()
 
-    @mock.patch('google.gax.config.exc_to_code')
     @mock.patch('time.time')
-    def test_retryable_aborts_on_unexpected_exception(
-            self, mock_time, mock_exc_to_code):
+    def test_retryable_aborts_on_unexpected_exception(self, mock_time):
         mock_time.return_value = 0
-        mock_exc_to_code.side_effect = lambda e: e.code
 
-        mock_call = mock.Mock()
-        mock_call.side_effect = [CustomException('', _FAKE_STATUS_CODE_2),
-                                 mock.DEFAULT]
-        mock_call.return_value = 1729
+        # Set up the mock function to raise an exception that should be
+        # bubbled up (because it is not recognized).
+        mock_func = mock.Mock()
+        mock_func.side_effect = [
+            errors.CustomException('bogus'),
+            mock.DEFAULT,
+        ]
+        mock_func.return_value = 1729
 
         retry_options = RetryOptions(
             [_FAKE_STATUS_CODE_1],
-            BackoffSettings(0, 0, 0, 0, 0, 0, 1))
+            BackoffSettings(0, 0, 0, 0, 0, 0, 1),
+        )
+        my_callable = retry.retryable(mock_func, retry_options)
 
-        my_callable = retry.retryable(mock_call, retry_options)
-
-        with self.assertRaises(CustomException):
+        # Establish that the custom exception is bubbled up (not wrapped), and
+        # that the retryable function was called only once, not twice.
+        with self.assertRaises(errors.CustomException):
             my_callable(None)
+        mock_func.assert_called_once()
 
-        self.assertEqual(1, mock_call.call_count)
-
-    @mock.patch('google.gax.config.exc_to_code')
     @mock.patch('time.sleep')
     @mock.patch('time.time')
-    def test_retryable_exponential_backoff(
-            self, mock_time, mock_sleep, mock_exc_to_code):
+    def test_retryable_exponential_backoff(self, mock_time, mock_sleep):
         def incr_time(secs):
             mock_time.return_value += secs
 
         def api_call(timeout):
             incr_time(timeout)
-            raise CustomException(str(timeout), _FAKE_STATUS_CODE_1)
+            raise errors.MockGrpcException(str(timeout), _FAKE_STATUS_CODE_1)
 
         mock_time.return_value = 0
         mock_sleep.side_effect = incr_time
-        mock_exc_to_code.side_effect = lambda e: e.code
 
-        mock_call = mock.Mock()
-        mock_call.side_effect = api_call
+        mock_func = mock.Mock()
+        mock_func.side_effect = api_call
 
         params = BackoffSettings(3, 2, 24, 5, 2, 80, 2500)
         retry_options = RetryOptions([_FAKE_STATUS_CODE_1], params)
 
-        my_callable = retry.retryable(mock_call, retry_options)
+        my_callable = retry.retryable(mock_func, retry_options)
 
         try:
             my_callable()
             self.fail('Should not have been reached')
         except errors.RetryError as exc:
-            self.assertIsInstance(exc.cause, CustomException)
+            self.assertIsInstance(exc.cause, errors.MockGrpcException)
 
         self.assertGreaterEqual(mock_time(),
                                 params.total_timeout_millis / _MILLIS_PER_SEC)
@@ -176,8 +180,8 @@ class TestRetry(unittest2.TestCase):
         # Very rough bounds
         calls_lower_bound = params.total_timeout_millis / (
             params.max_retry_delay_millis + params.max_rpc_timeout_millis)
-        self.assertGreater(mock_call.call_count, calls_lower_bound)
+        self.assertGreater(mock_func.call_count, calls_lower_bound)
 
         calls_upper_bound = (params.total_timeout_millis /
                              params.initial_retry_delay_millis)
-        self.assertLess(mock_call.call_count, calls_upper_bound)
+        self.assertLess(mock_func.call_count, calls_upper_bound)
