@@ -112,11 +112,8 @@ class TestRetry(unittest2.TestCase):
 
         my_callable = retry.retryable(mock_call, retry_options)
 
-        try:
+        with self.assertRaises(CustomException):
             my_callable(None)
-            self.fail('Should not have been reached')
-        except errors.RetryError as exc:
-            self.assertIsInstance(exc.cause, CustomException)
 
         self.assertEqual(1, mock_call.call_count)
 
@@ -138,11 +135,8 @@ class TestRetry(unittest2.TestCase):
 
         my_callable = retry.retryable(mock_call, retry_options)
 
-        try:
+        with self.assertRaises(CustomException):
             my_callable(None)
-            self.fail('Should not have been reached')
-        except errors.RetryError as exc:
-            self.assertIsInstance(exc.cause, CustomException)
 
         self.assertEqual(1, mock_call.call_count)
 
