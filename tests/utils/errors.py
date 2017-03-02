@@ -32,7 +32,7 @@ from __future__ import absolute_import
 from google.gax import config
 from google.gax.errors import GaxError, RetryError
 
-__all__ = ['CustomException', 'GaxError', 'MockGrpcException', 'RetryError']
+__all__ = ['GaxError', 'MockGrpcException', 'RetryError']
 
 
 class MockGrpcException(config.API_ERRORS[0]):
