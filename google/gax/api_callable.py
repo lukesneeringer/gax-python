@@ -36,6 +36,7 @@ from future import utils
 from google import gax
 from google.gax import bundling
 from google.gax.utils import metrics
+from google.gax.utils import merge_dicts
 
 _MILLIS_PER_SECOND = 1000
 
@@ -166,39 +167,6 @@ def _construct_retry(method_config, retry_codes, retry_params, retry_names):
     )
 
 
-def _merge_retry_options(retry_options, overrides):
-    """Helper for ``construct_settings()``.
-
-    Takes two retry options, and merges them into a single RetryOption instance.
-
-    Args:
-      retry_options: The base RetryOptions.
-      overrides: The RetryOptions used for overriding ``retry``. Use the values
-        if it is not None. If entire ``overrides`` is None, ignore the base
-        retry and return None.
-
-    Returns:
-      The merged RetryOptions, or None if it will be canceled.
-    """
-    if overrides is None:
-        return None
-
-    if overrides.retry_codes is None and overrides.backoff_settings is None:
-        return retry_options
-
-    codes = retry_options.retry_codes
-    if overrides.retry_codes is not None:
-        codes = overrides.retry_codes
-    backoff_settings = retry_options.backoff_settings
-    if overrides.backoff_settings is not None:
-        backoff_settings = overrides.backoff_settings
-
-    return gax.RetryOptions(
-        backoff_settings=backoff_settings,
-        retry_codes=codes,
-    )
-
-
 def _upper_camel_to_lower_under(string):
     if not string:
         return ''
@@ -293,6 +261,7 @@ def construct_settings(
     bundle_descriptors = bundle_descriptors or {}
     page_descriptors = page_descriptors or {}
     kwargs = kwargs or {}
+    client_config = merge_dicts(client_config, config_override)
 
     # Sanity check: It is possible that we got this far but some headers
     # were specified with an older library, which sends them as...
@@ -319,30 +288,22 @@ def construct_settings(
         raise KeyError('Client configuration not found for service: {}'
                        .format(service_name))
 
-    overrides = config_override.get('interfaces', {}).get(service_name, {})
-
     for method in service_config.get('methods'):
         method_config = service_config['methods'][method]
-        overriding_method = overrides.get('methods', {}).get(method, {})
         snake_name = _upper_camel_to_lower_under(method)
 
-        if overriding_method and overriding_method.get('timeout_millis'):
-            timeout = overriding_method['timeout_millis']
-        else:
-            timeout = method_config['timeout_millis']
-        timeout /= _MILLIS_PER_SECOND
+        timeout = method_config['timeout_millis'] / _MILLIS_PER_SECOND
 
         bundle_descriptor = bundle_descriptors.get(snake_name)
         bundling_config = method_config.get('bundling', None)
-        if overriding_method and 'bundling' in overriding_method:
-            bundling_config = overriding_method['bundling']
         bundler = _construct_bundling(bundling_config, bundle_descriptor)
 
-        retry_options = _merge_retry_options(
-            _construct_retry(method_config, service_config['retry_codes'],
-                             service_config['retry_params'], retry_names),
-            _construct_retry(overriding_method, overrides.get('retry_codes'),
-                             overrides.get('retry_params'), retry_names))
+        retry_options = _construct_retry(
+            method_config=method_config,
+            retry_codes=service_config['retry_codes'],
+            retry_params=service_config['retry_params'],
+            retry_names=retry_names,
+        )
 
         defaults[snake_name] = gax._CallSettings(
             timeout=timeout, retry=retry_options,

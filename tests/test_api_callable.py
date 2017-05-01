@@ -307,10 +307,8 @@ class TestCreateApiCallable(unittest2.TestCase):
             'interfaces': {
                 _SERVICE_NAME: {
                     'methods': {
-                        'PageStreamingMethod': None,
                         'BundlingMethod': {
                             'timeout_millis': 8000,
-                            'bundling': None
                         }
                     }
                 }

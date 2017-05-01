@@ -27,10 +27,31 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Utility function for merging two dictionaries."""
+
 from __future__ import absolute_import
+from collections import Mapping
+from copy import copy
 
-from google.gax.utils.merge_dicts import merge_dicts
-from google.gax.utils import metrics
-from google.gax.utils import oneof
 
-__all__ = ('merge_dicts', 'metrics', 'oneof')
+def merge_dicts(*dicts):
+    """Return a dictionary that represents the union of the provided dicts.
+
+    If any value is a dictionary, this function is used recursively to
+    merge the values together.
+
+    Args:
+        dicts (list[dict]): The dicitonaries to be merged. Values in later
+            dictionaries take precedence over values in earlier ones.
+
+    Returns:
+        dict: The merged dictionary.
+    """
+    answer = {}
+    for d in dicts:
+        for k, v in d.items():
+            if isinstance(v, Mapping) and isinstance(answer.get(k), Mapping):
+                answer[k] = merge_dicts(copy(answer[k]), copy(v))
+                continue
+            answer[k] = copy(v)
+    return answer
